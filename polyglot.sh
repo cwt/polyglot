@@ -238,6 +238,59 @@ _polyglot_prompt_dirtrim() {
 }
 
 ###########################################################
+# Display Mercurial branch/bookmark and status
+#
+# Arguments:
+#   $1  If ksh, escape ! as !!
+###########################################################
+_polyglot_hg_status() {
+  # Check if hg is available
+  command -v hg >/dev/null 2>&1 || return
+
+  # Check if in hg repo and get ref (bookmark or branch) in one go
+  # Format: bookmarks|branch
+  # If this fails (exit code != 0), we are likely not in a repo.
+  POLYGLOT_HG_INFO=$(env hg log -r . -T "{bookmarks}|{branch}" 2>/dev/null)
+  if [ $? -ne 0 ]; then return; fi
+
+  POLYGLOT_HG_REF="${POLYGLOT_HG_INFO%%|*}"
+  POLYGLOT_HG_BRANCH="${POLYGLOT_HG_INFO#*|}"
+
+  # Use branch if no bookmarks
+  [ -z "$POLYGLOT_HG_REF" ] && POLYGLOT_HG_REF="$POLYGLOT_HG_BRANCH"
+
+  # Get status codes
+  POLYGLOT_HG_STATUS_CODES=$(env hg status -T "{status}" 2>/dev/null)
+
+  POLYGLOT_SYMBOLS=''
+
+  # Modified
+  case "$POLYGLOT_HG_STATUS_CODES" in *M*)
+    if [ "$1" = 'ksh' ]; then
+      POLYGLOT_SYMBOLS="${POLYGLOT_SYMBOLS}!!"
+    else
+      POLYGLOT_SYMBOLS="${POLYGLOT_SYMBOLS}!"
+    fi
+    ;;
+  esac
+
+  # Added
+  case "$POLYGLOT_HG_STATUS_CODES" in *A*) POLYGLOT_SYMBOLS="${POLYGLOT_SYMBOLS}+" ;; esac
+
+  # Removed / Deleted
+  case "$POLYGLOT_HG_STATUS_CODES" in *R*|*\!*) POLYGLOT_SYMBOLS="${POLYGLOT_SYMBOLS}x" ;; esac
+
+  # Untracked
+  case "$POLYGLOT_HG_STATUS_CODES" in *\?*) POLYGLOT_SYMBOLS="${POLYGLOT_SYMBOLS}?" ;; esac
+
+  [ -n "$POLYGLOT_SYMBOLS" ] && POLYGLOT_SYMBOLS=" $POLYGLOT_SYMBOLS"
+
+  printf ' (%s%s)' "$POLYGLOT_HG_REF" "$POLYGLOT_SYMBOLS"
+
+  unset POLYGLOT_HG_INFO POLYGLOT_HG_REF POLYGLOT_HG_BRANCH POLYGLOT_HG_STATUS_CODES POLYGLOT_SYMBOLS
+}
+
+###########################################################
 # Display current branch name, followed by symbols
 # representing changes to the working copy
 #
@@ -253,7 +306,10 @@ _polyglot_branch_status() {
   POLYGLOT_REF="$(env git symbolic-ref --quiet HEAD 2> /dev/null)"
   case $? in        # See what the exit code is.
     0) ;;           # $POLYGLOT_REF contains the name of a checked-out branch.
-    128) return ;;  # No Git repository here.
+    128)            # No Git repository here.
+      _polyglot_hg_status "$1"
+      return
+      ;;
     # Otherwise, see if HEAD is in a detached state.
     *) POLYGLOT_REF="$(env git rev-parse --short HEAD 2> /dev/null)" || return ;;
   esac
